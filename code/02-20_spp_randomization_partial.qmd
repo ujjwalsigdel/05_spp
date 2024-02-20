@@ -1,0 +1,159 @@
+---
+title: "Randomization"
+format: html
+---
+
+# Introduction  
+The goals of this exercise are to:  
+- Learn how to randomize a split-plot RCBD in R  
+- Learn how to create plot layouts with them  
+
+# Setup  
+Here is where we load the packages we will use.  
+```{r setup}
+# Loading packages
+library(tidyverse) # for data wrangling and plotting
+```
+
+# Treatment design  
+Keeping with the same motivational example we've been using, our treatment design is:  
+
+-   2-way factorial **in a split-plot**  
+-   **Whole-plot** treatment factor: K fertilizer rates: 0, 30, 60 kg K/ha\
+-   **Split-plot** treatment factor: N fertilizer rates: 0, 100, 200 kg N/ha\
+-   3 x 3 = **9 treatment combinations** that will be assigned to different sizes of experimental units!  
+
+# Split-plot in RCBD  
+## WP randomization  
+First, let's randomize the whole-plot treatment factor (K rate) to the blocks.  
+
+I decided to call it block (instead of rep) because the concept of rep in a split-plot depends on which split level (whole-plot or split-plot) we are talking about.  
+
+In a split-plot RCBD, the block is still the level of replication for the whole-plot treatment factor. For the split-plot treatment factor, replication is at the block x WP level.  
+
+```{r wp_rcbd_rand}
+# Setting seed to get same randomization result every time
+set.seed(930)
+
+wp_rcbd_rand <- crossing(krate_kgha = c(0, 30, 60),
+                         block= 1:4) %>% 
+  arrange(block) %>% 
+  # Randomizing WP treatment factor to blocks (restricted) 
+  group_by(block) %>% 
+  mutate(krate_kgha = sample(krate_kgha)) %>% 
+    # Creating WP plot numbers 
+  mutate(wplot = (block*100)+ 1:3) %>% 
+  ungroup()
+  
+wp_rcbd_rand
+
+```
+
+How many rows do we have in the object above? Why?  
+
+## SP randomization  
+Now, let's randomize the split-plot treatment factor (N rate) to the WP treatment plots.  
+```{r sp_rcbd_rand}
+sp_rcbd_rand <- crossing(nrate_kgha = c(0, 100, 200),
+                         wplot = wp_rcbd_rand$wplot) %>% 
+  arrange(wplot) %>% 
+  # Randomizing SP treatment factor to WP plots (restricted)
+  group_by(wplot) %>% 
+  mutate(nrate_kgha = sample(nrate_kgha)) %>% 
+  # Creating SP plot numbers 
+  mutate(splot = paste0(wplot, "-", 1:3))
+
+sp_rcbd_rand
+```
+
+## Joining WP and SP into one object
+```{r spp_rcbd_rand}
+spp_rcbd_rand <- wp_rcbd_rand %>% 
+  right_join(sp_rcbd_rand) %>% 
+  mutate(trtname = paste0(krate_kgha, "+", nrate_kgha))
+
+spp_rcbd_rand
+
+```
+
+How many rows in the object above? Why?
+
+Let's inspect block 1.  
+```{r}
+spp_rcbd_rand %>% 
+  filter(block == 1)
+```
+
+Notice wplot and splot columns. What is going on here?  
+
+## Plot layout  
+```{r spp_rcbd_layout}
+spp_rcbd_layout <- spp_rcbd_rand %>%
+  # Defining number of rows and columns in the field for plotting purposes
+  mutate(row = rep(1:4, each = 9)) %>%
+  mutate(col = rep(seq(from = 1, 
+                       to = 9, #total number of treatments, 
+                       by = 1), 
+                   times = 4 #total number of blocks
+  )) %>%
+  # Creating plot and trtname labels for plotting
+  mutate(lab = paste0(splot, "\n", trtname))
+
+spp_rcbd_layout
+```
+
+Now, let's plot it.
+```{r spp rcbd map}
+ggplot(data = spp_rcbd_layout, aes(x = row, 
+                                   y = col))+
+  geom_tile(aes(fill = factor(nrate_kgha)),
+            color = 'black', 
+            show.legend = F
+            )+
+  geom_tile(aes(color = krate_kgha), 
+            show.legend = F,
+            size = 1.5,
+            linetype = 2, 
+            fill = NA)+
+    scale_fill_manual(values = c("#e5f0db",
+                               "#b1d095",
+                               "#5e813f"))+
+  geom_text(aes(label = splot), fontface = "bold", vjust = -.8)+
+  geom_text(aes(label = trtname), vjust = 1)+
+  labs(title = "Split-plot RCBD randomization of a\n3 K (whole-plot) x 3 N (split-plot) treatment design") +
+  theme_void()+
+  theme(plot.title = element_text(face = 'bold', hjust = 0.5))
+
+```
+
+Notice how:  
+  - Each K rate treatment was randomized within each block first, where each WP experimental unit comprises 3 cells. 
+  
+  - Each N rate treatment was randomized within each WP EU, where each SP experimental unit comprises 1 cell.  
+
+# Exporting to file  
+If this is in fact your study, you may want to export both the field randomization table AND the layout map.  
+
+Let's do that below for the RCBD example.  
+
+```{r}
+spp_rcbd_rand %>%
+  # Rearranging columns  
+  dplyr::select(block, wplot, krate_kgha, 
+                splot, nrate_kgha,
+                trtname) %>%
+  write_csv("../output/spp_rcbd_randomization_table.csv")
+
+
+```
+
+`ggsave()` will save the last plot created in the session, even if from an above chunk. Since the last plot we created was the RCBD layout, we can just go ahead and call ggsave here.  
+
+```{r}
+ggsave("../output/spp_rcbd_layoutmap.png",
+       width = 6,
+       height = 5,
+       bg = "white")
+```
+
+
